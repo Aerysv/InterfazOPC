@@ -11,6 +11,7 @@ import tkinter as tk
 pywintypes.datetime = pywintypes.TimeType
 
 # Ventana gráfica
+# No funciona adecuadamente, debería poder mostrar información
 root = tk.Tk()
 root.title("MPC Reactor Híbrido")
 canvas1 = tk.Canvas(root, width=300, height=300)
@@ -21,9 +22,9 @@ label = tk.Label(text="Controlador en ejecución...")
 label.place(x=0, y=0)
 
 # Iniciliazacion del programa
-Controlador = False         # Activa el controlador luego de recoger datos
-PeriodosEjecucion = 0
-t_Sample = 30
+Controlador = False         # Controlador inicia desactivado
+PeriodosEjecucion = 0       # Inicializador contador de ejecución
+t_Sample = 30               # Periodo de muestreo
 
 
 def conexion_OPC():
@@ -81,8 +82,6 @@ def configuracion_MPC(T_sp, Ca_sp, gamma1, gamma2, beta1, beta2):
     MPC.get_node("ns=4;s=beta[2]").set_value(
         ua.Variant(beta2, ua.VariantType.Double))
 
-    return 0
-
 
 def ComunicacionRTO():
     costos = [0]*5
@@ -139,13 +138,11 @@ def Datos_MPC(q, qc, T0, Tc0, T, Tc, Ca):
         ua.Variant(Tc, ua.VariantType.Double))
     MPC.get_node("ns=4;s=Ca").set_value(
         ua.Variant(Ca, ua.VariantType.Double))
-    return 0
 
 
 def ejecutar_MPC():
     MPC.get_node("ns=2;s=server_methods").call_method(
         "5:method_run", ua.Variant("A String", ua.VariantType.String))
-    return 0
 
 
 def actualizar_PID():
@@ -165,17 +162,16 @@ def reportar(q, qc):
     print(f"\t  q  = {q:.2f} L/min")
     print(f"\t  qc = {qc:.2f} L/min")
 
-    return 0
-
 
 try:
     # Conexion a los servidores OPC
     [MPC, SCADA, PID1, PID2] = conexion_OPC()
 
+    # Loop principal
     while True:
         tiempo_inicio = time.time()             # Contador de tiempo
 
-        # Verificar si se ha activado/desactivado el controlardor desde el SCADA
+        # Verificar estado de MPC/RTO (On-Off) en el SCADA
         Auto_MPC = SCADA.read("Deck Variables.AutoMPC")[0]
         Auto_RTO = SCADA.read("Deck Variables.AutoRTO")[0]
 
@@ -204,10 +200,10 @@ try:
             # Escritura de los datos de la planta al controlador
             Datos_MPC(q, qc, T0, Tc0, T, Tc, Ca)
 
-            # Ejecucion controlador, solo se soluciona el MHE y MPC si FlagControlador = 1
+            # Ejecucion MPC, solo si FlagControlador = 1
             ejecutar_MPC()
 
-            if Controlador == True:
+            if Controlador:
                 # Obtener acciones de control y actualizar set-poit de los PID
                 [q_sp, qc_sp] = actualizar_PID()
                 # Reportar en pantallas las acciones de control
@@ -215,7 +211,7 @@ try:
             else:
                 print("\n" + time.strftime("%H:%M:%S") +
                       ": Controlador activo, recolectando datos para MHE")
-
+            # Descansar hasta el próximo periodo de muestreo
             a = (time.time() - tiempo_inicio)
             root.update()
             time.sleep(t_Sample - (time.time() - tiempo_inicio))
@@ -229,6 +225,8 @@ try:
                   ": Controlador desactivado")
             time.sleep(t_Sample)
 
+# Lo que resta del código se encarga de desconectarse correctamente de los
+# servidores OPC por si surge cualquier problema
 except KeyboardInterrupt:
 
     SCADA.close()
